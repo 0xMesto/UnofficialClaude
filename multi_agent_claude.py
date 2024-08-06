@@ -1,131 +1,275 @@
-import json
 import logging
 import time
 import random
-from claude_api import UnofficialClaudeAPI
+import asyncio
+import aiohttp
+from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
+from bs4 import BeautifulSoup
+from queue import Queue
+from threading import Thread
+import psutil
 
-# Configure logging
+# Setup logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 class Agent:
-    def __init__(self, name, role, browser_ws_endpoint):
-        self.name = name
-        self.role = role
-        self.browser_ws_endpoint = browser_ws_endpoint
-        self.api = None
+    def __init__(self, agent_type, parameters):
+        self.agent_type = agent_type
+        self.parameters = parameters
+        self.tasks = Queue()
+        self.is_active = True
+        logger.info(f"Agent of type {agent_type} created with parameters: {parameters}")
 
-    def initialize(self):
-        logger.info(f"Initializing agent: {self.name}")
-        self.api = UnofficialClaudeAPI(self.browser_ws_endpoint)
-        self.api.__enter__()
-        self.api.start_conversation()
-        # Remove the model selection for now
-        logger.info(f"Agent {self.name} initialized and ready")
+    async def process_task(self):
+        while self.is_active:
+            if not self.tasks.empty():
+                task = self.tasks.get()
+                logger.info(f"Agent {self.agent_type} processing task: {task}")
+                # Implement task processing logic here
+                await asyncio.sleep(1)  # Simulating work
+            else:
+                await asyncio.sleep(0.1)
 
-    def process(self, input_data):
-        logger.info(f"Agent {self.name} processing input")
-        prompt = f"""You are a {self.role}. Your task is to {self.name}.
+class LLMAgent(Agent):
+    def __init__(self, parameters):
+        super().__init__("LLM", parameters)
+        self.claude_api = None
 
-Input: {input_data}
+    async def initialize(self):
+        async with async_playwright() as p:
+            browser = await p.chromium.connect_over_cdp(self.parameters['browser_ws_endpoint'])
+            context = await browser.new_context()
+            page = await context.new_page()
+            self.claude_api = UnofficialClaudeAPI(page)
+            await self.claude_api.__aenter__()
 
-Provide a detailed and thorough response. If you need any clarification or additional information, please ask.
+    async def process_task(self):
+        while self.is_active:
+            if not self.tasks.empty():
+                task = self.tasks.get()
+                logger.info(f"LLM Agent processing task: {task}")
+                if task['type'] == 'send_message':
+                    response = await self.claude_api.send_message(task['chatbot_name'], task['message'])
+                    logger.info(f"LLM Agent response: {response}")
+                # Implement other task types as needed
+            else:
+                await asyncio.sleep(0.1)
 
-Response:"""
+class SearchAgent(Agent):
+    def __init__(self, parameters):
+        super().__init__("Search", parameters)
+        self.session = None
 
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                response = self.api.send_message(prompt)
-                logger.debug(f"Agent {self.name} received response: {response[:100]}...")  # Log first 100 chars
-                return response
-            except Exception as e:
-                logger.warning(f"Error in agent {self.name} while processing (attempt {attempt + 1}/{max_retries}): {e}")
-                if attempt < max_retries - 1:
-                    delay = random.uniform(5, 15)
-                    logger.info(f"Retrying in {delay:.2f} seconds...")
-                    time.sleep(delay)
+    async def initialize(self):
+        self.session = aiohttp.ClientSession()
+
+    async def process_task(self):
+        while self.is_active:
+            if not self.tasks.empty():
+                task = self.tasks.get()
+                logger.info(f"Search Agent processing task: {task}")
+                if task['type'] == 'web_search':
+                    async with self.session.get(f"https://api.search.com?q={task['query']}") as response:
+                        result = await response.json()
+                        logger.info(f"Search Agent result: {result}")
+            else:
+                await asyncio.sleep(0.1)
+
+    async def cleanup(self):
+        if self.session:
+            await self.session.close()
+
+class TaskManager:
+    def __init__(self):
+        self.tasks = Queue()
+        self.agents = {}
+
+    def add_agent(self, agent):
+        self.agents[agent.agent_type] = agent
+
+    def create_task(self, task_type, parameters):
+        task = {'type': task_type, **parameters}
+        self.tasks.put(task)
+        logger.info(f"Task created: {task}")
+
+    async def distribute_tasks(self):
+        while True:
+            if not self.tasks.empty():
+                task = self.tasks.get()
+                agent_type = self.determine_agent_type(task)
+                if agent_type in self.agents:
+                    self.agents[agent_type].tasks.put(task)
+                    logger.info(f"Task assigned to {agent_type} agent: {task}")
                 else:
-                    logger.error(f"Max retries reached for agent {self.name}")
-                    raise
+                    logger.warning(f"No suitable agent found for task: {task}")
+            await asyncio.sleep(0.1)
 
-    def close(self):
-        logger.info(f"Closing agent: {self.name}")
-        if self.api:
-            self.api.__exit__(None, None, None)
-        logger.info(f"Agent {self.name} closed")
+    def determine_agent_type(self, task):
+        # Implement logic to determine the appropriate agent type for a task
+        if task['type'] in ['send_message', 'get_conversation_history']:
+            return 'LLM'
+        elif task['type'] == 'web_search':
+            return 'Search'
+        else:
+            return 'Unknown'
 
-class Workflow:
-    def __init__(self, goal):
-        self.goal = goal
-        self.agents = []
-        self.browser_ws_endpoint = "ws://localhost:9222/devtools/browser/0ae2c38e-54c6-497c-b9dc-244ea216fda7"  # Replace with your actual WebSocket endpoint
-        logger.info(f"Workflow initialized with goal: {goal}")
+class KnowledgeBase:
+    def __init__(self):
+        self.data = {}
 
-    def add_agent(self, name, role):
-        agent = Agent(name, role, self.browser_ws_endpoint)
-        self.agents.append(agent)
-        logger.info(f"Added agent to workflow: {name} ({role})")
+    def update(self, key, value):
+        self.data[key] = value
+        logger.info(f"Knowledge base updated: {key} = {value}")
 
-    def run(self):
-        result = self.goal
-        for agent in self.agents:
-            logger.info(f"Initializing and running agent: {agent.name}")
-            try:
-                agent.initialize()
-                result = agent.process(result)
-                logger.info(f"Agent {agent.name} completed processing")
-            except Exception as e:
-                logger.error(f"Error occurred while running agent {agent.name}: {e}")
-                logger.info(f"Skipping agent {agent.name} and continuing with next agent")
-            finally:
-                agent.close()
+    def get(self, key):
+        return self.data.get(key)
+
+class SystemMonitor:
+    @staticmethod
+    def monitor_health():
+        while True:
+            cpu_percent = psutil.cpu_percent()
+            memory_percent = psutil.virtual_memory().percent
+            logger.info(f"System Health - CPU: {cpu_percent}%, Memory: {memory_percent}%")
+            time.sleep(60)  # Check every minute
+
+class UnofficialClaudeAPI:
+    def __init__(self, page):
+        self.page = page
+        self.base_url = "https://claude.ai"
+        self.timeout = 120000
+        self.chatbots = {}
+
+    async def __aenter__(self):
+        await self.page.goto(self.base_url, timeout=self.timeout)
+        await self.wait_for_page_load()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.page.close()
+
+    async def wait_for_page_load(self):
+        try:
+            await self.page.wait_for_load_state("networkidle", timeout=self.timeout)
+            await self.page.wait_for_load_state("domcontentloaded", timeout=self.timeout)
+            await self.page.wait_for_load_state("load", timeout=self.timeout)
+            await asyncio.sleep(5)
+        except PlaywrightTimeoutError:
+            logger.warning("Timeout while waiting for page to load. Proceeding anyway.")
+
+    async def create_chatbot(self, name):
+        try:
+            await self.page.goto(f"{self.base_url}/new", timeout=self.timeout)
+            await self.wait_for_page_load()
             
-            delay = random.uniform(5, 15)
-            logger.info(f"Waiting for {delay:.2f} seconds before next agent")
-            time.sleep(delay)
-        
-        return result
+            input_selector = "div[contenteditable='true']"
+            await self.page.wait_for_selector(input_selector, state="visible", timeout=self.timeout)
+            
+            chat_url = self.page.url
+            chat_id = chat_url.split('/')[-1]
+            
+            self.chatbots[name] = {
+                'chat_id': chat_id,
+                'message_count': 0
+            }
+            
+            logger.info(f"Successfully created chatbot {name} with chat ID {chat_id}")
+            return chat_id
+        except Exception as e:
+            logger.error(f"An error occurred while creating chatbot: {e}", exc_info=True)
+            raise
 
-    def export_workflow(self, filename):
-        workflow_data = {
-            "goal": self.goal,
-            "agents": [{"name": agent.name, "role": agent.role} for agent in self.agents]
-        }
-        with open(filename, 'w') as f:
-            json.dump(workflow_data, f, indent=2)
-        logger.info(f"Workflow exported to {filename}")
+    async def send_message(self, name, message):
+        try:
+            if name not in self.chatbots:
+                raise ValueError(f"Chatbot {name} does not exist")
+            
+            chat_id = self.chatbots[name]['chat_id']
+            await self.page.goto(f"{self.base_url}/chat/{chat_id}", timeout=self.timeout)
+            await self.wait_for_page_load()
+            
+            input_selector = "div[contenteditable='true']"
+            input_element = await self.page.query_selector(input_selector)
+            
+            if input_element:
+                await input_element.type(message, delay=50)
+            else:
+                raise Exception("Input element not found")
+            
+            send_button_selector = "button[aria-label='Send Message']"
+            await self.page.click(send_button_selector)
+            
+            response_selector = "div.font-claude-message >> nth=-1"
+            await self.page.wait_for_selector(response_selector, state="attached", timeout=self.timeout)
+            
+            response_element = await self.page.query_selector(response_selector)
+            if response_element:
+                response_html = await response_element.inner_html()
+                response_text = self.html_to_text(response_html)
+                self.chatbots[name]['message_count'] += 1
+                return response_text
+            else:
+                logger.warning("No response element found")
+                return None
+        except Exception as e:
+            logger.error(f"An error occurred while sending message: {e}", exc_info=True)
+            raise
 
-def main():
-    # Goal Definition
-    goal = "Research and write a comprehensive report on the impact of artificial intelligence on healthcare. Include current applications, potential future developments, ethical considerations, and challenges in implementation."
+    @staticmethod
+    def html_to_text(html):
+        soup = BeautifulSoup(html, 'html.parser')
+        return soup.get_text(separator='\n', strip=True)
 
-    # Workflow Creation
-    workflow = Workflow(goal)
+async def main():
+    task_manager = TaskManager()
+    knowledge_base = KnowledgeBase()
 
-    # Agent Configuration
-    workflow.add_agent("plan_research_and_outline", "Research Planner")
-    workflow.add_agent("conduct_in_depth_research", "AI and Healthcare Researcher")
-    workflow.add_agent("analyze_ethical_implications", "Ethics Analyst")
-    workflow.add_agent("compile_comprehensive_report", "Technical Writer")
+    # Create and initialize agents
+    llm_agent = LLMAgent({'browser_ws_endpoint': 'ws://localhost:9222'})
+    await llm_agent.initialize()
+    task_manager.add_agent(llm_agent)
 
-    # Execution and Monitoring
+    search_agent = SearchAgent({})
+    await search_agent.initialize()
+    task_manager.add_agent(search_agent)
+
+    # Start system monitor
+    monitor_thread = Thread(target=SystemMonitor.monitor_health)
+    monitor_thread.start()
+
+    # Start task distribution
+    asyncio.create_task(task_manager.distribute_tasks())
+
+    # Start agent task processing
+    agent_tasks = [asyncio.create_task(agent.process_task()) for agent in task_manager.agents.values()]
+
+    # Main loop
     try:
-        final_report = workflow.run()
-        logger.info("Workflow completed successfully")
-        logger.info("Final Report Summary:")
-        logger.info(final_report[:500] + "...")  # Log first 500 characters of the report
+        while True:
+            # Simulate receiving user requests
+            user_input = input("Enter a task (or 'quit' to exit): ")
+            if user_input.lower() == 'quit':
+                break
+
+            # Create a task based on user input
+            if 'search' in user_input.lower():
+                task_manager.create_task('web_search', {'query': user_input})
+            else:
+                task_manager.create_task('send_message', {'chatbot_name': 'default', 'message': user_input})
+
+            await asyncio.sleep(0.1)
+    except KeyboardInterrupt:
+        logger.info("Shutting down...")
+    finally:
+        # Cleanup
+        for agent in task_manager.agents.values():
+            agent.is_active = False
+            if hasattr(agent, 'cleanup'):
+                await agent.cleanup()
         
-        # Save the full report to a file
-        with open("ai_healthcare_report.txt", "w") as f:
-            f.write(final_report)
-        logger.info("Full report saved to ai_healthcare_report.txt")
-
-    except Exception as e:
-        logger.error(f"An error occurred during workflow execution: {e}")
-
-    # Export Workflow
-    workflow.export_workflow("ai_healthcare_workflow.json")
+        await asyncio.gather(*agent_tasks)
+        monitor_thread.join()
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
