@@ -15,7 +15,7 @@ class Client:
 
     def __init__(self, cookie, model="claude-3-opus-20240229"):
         self.cookie = cookie
-        self.organization_id = "05719259-a917-4a27-a78e-56ec78cc9b93"
+        self.organization_id = "YOUR-ORGANIZATION-ID"
         self.model = model
         logger.debug(f"Initialized Client with organization_id: {self.organization_id} and model: {self.model}")
 
