@@ -1,422 +1,367 @@
-import logging
-import re
-import asyncio
 import json
-from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError, Error as PlaywrightError
+import os
+import uuid
+from curl_cffi import requests
+import requests as req
+import re
+import time
+import logging
+import random
 
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-class UnofficialClaudeAPI:
-    def __init__(self, browser_ws_endpoint, organization_id):
-        self.playwright = None
-        self.browser = None
-        self.context = None
-        self.page = None
-        self.data_page = None
-        self.base_url = "https://claude.ai"
-        self.api_base_url = "https://api.claude.ai"
-        self.chat_code = None
-        self.browser_ws_endpoint = browser_ws_endpoint
-        self.organization_id = organization_id
-        self.timeout = 120000
-        self.message_count = 0
-        self.pause_duration = 5.5 * 60 * 60
-        self.last_message_index = -1
-        self.current_model = "Claude 3.5 Sonnet"
-        logger.info("UnofficialClaudeAPI instance created")
-    
-    async def get_current_model(self):
-        return self.current_model
+class Client:
 
-    async def __aenter__(self):
-        logger.debug("Entering context manager")
-        self.playwright = await async_playwright().start()
-        logger.debug("Playwright started")
+    def __init__(self, cookie):
+        self.cookie = cookie
+        self.organization_id = "05719259-a917-4a27-a78e-56ec78cc9b93"
+        logger.debug(f"Initialized Client with organization_id: {self.organization_id}")
+
+    def get_organization_id(self):
+        url = "https://claude.ai/api/organizations"
         
-        try:
-            self.browser = await self.playwright.chromium.connect_over_cdp(self.browser_ws_endpoint)
-            logger.debug("Connected to existing browser")
-            
-            self.context = self.browser.contexts[0]
-            self.data_page = await self.context.new_page()
-            self.page = await self.context.new_page()
-            
-            logger.debug("Created chat page and data fetching page")
+        headers = {
+            'User-Agent': self.get_random_user_agent(),
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Referer': 'https://claude.ai/chats',
+            'Content-Type': 'application/json',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-origin',
+            'Connection': 'keep-alive',
+            'Cookie': f'{self.cookie}'
+        }
 
-            await self.page.goto(self.base_url, timeout=self.timeout)
-            logger.debug(f"Navigated to {self.base_url} on chat page")
-            
-            await self.wait_for_page_load()
-            
-            logger.debug("Successfully connected to browser")
+        try:
+            logger.info("Human-like behavior: Fetching organization ID")
+            time.sleep(random.uniform(0.5, 1.5))  # Simulate human delay
+            response = requests.get(url, headers=headers, impersonate="chrome110")
+            res = json.loads(response.text)
+            logger.debug(f"API response for organizations: {res}")
+            uuid = "05719259-a917-4a27-a78e-56ec78cc9b93"
+            logger.debug(f"Returning hardcoded UUID: {uuid}")
+            logger.info("Human-like behavior: Retrieved organization ID")
+            return uuid
         except Exception as e:
-            logger.error(f"Failed to connect to browser: {e}", exc_info=True)
-            raise
+            logger.error(f"Error in get_organization_id: {str(e)}")
+            return None
 
-        return self
+    def get_content_type(self, file_path):
+        extension = os.path.splitext(file_path)[-1].lower()
+        if extension == '.pdf':
+            return 'application/pdf'
+        elif extension == '.txt':
+            return 'text/plain'
+        elif extension == '.csv':
+            return 'text/csv'
+        else:
+            return 'application/octet-stream'
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        logger.debug("Exiting context manager")
-        await self.close()
+    def list_all_conversations(self):
+        url = f"https://claude.ai/api/organizations/{self.organization_id}/chat_conversations"
 
-    async def wait_for_page_load(self):
-        logger.debug("Waiting for page to load")
-        try:
-            await self.page.wait_for_load_state("networkidle", timeout=self.timeout)
-            await self.page.wait_for_load_state("domcontentloaded", timeout=self.timeout)
-            await self.page.wait_for_load_state("load", timeout=self.timeout)
-            await asyncio.sleep(5)
-            logger.debug("Page fully loaded")
-        except PlaywrightTimeoutError:
-            logger.warning("Timeout while waiting for page to load. Proceeding anyway.")
+        headers = {
+            'User-Agent': self.get_random_user_agent(),
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Referer': 'https://claude.ai/chats',
+            'Content-Type': 'application/json',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-origin',
+            'Connection': 'keep-alive',
+            'Cookie': f'{self.cookie}'
+        }
 
-    async def reload_page(self):
-        logger.info("Reloading the page")
-        try:
-            await self.page.reload(timeout=self.timeout)
-            await self.wait_for_page_load()
-            logger.info("Page reloaded successfully")
-        except Exception as e:
-            logger.error(f"Failed to reload the page: {e}", exc_info=True)
-            raise
+        logger.info("Human-like behavior: Listing conversations")
+        time.sleep(random.uniform(1, 2))  # Simulate human delay
+        response = requests.get(url, headers=headers, impersonate="chrome110")
+        conversations = response.json()
 
-    async def start_conversation(self):
-        logger.info("Starting new conversation")
-        try:
-            await self.page.goto(f"{self.base_url}/new", timeout=self.timeout)
-            logger.debug(f"Navigated to {self.base_url}/new")
-            
-            await self.wait_for_page_load()
-            
-            input_selector = "div[contenteditable='true']"
-            await self.page.wait_for_selector(input_selector, state="visible", timeout=self.timeout)
-            logger.debug("Input field is visible")
-            
-            self.message_count = 0
-            self.last_message_index = -1
-            self.chat_code = None
-            
-            logger.info("New conversation started successfully")
-        except PlaywrightTimeoutError as e:
-            logger.error(f"Timeout error while starting conversation: {e}", exc_info=True)
-            await self.reload_page()
-            raise
-        except Exception as e:
-            logger.error(f"An error occurred while starting conversation: {e}", exc_info=True)
-            await self.reload_page()
-            raise
+        if response.status_code == 200:
+            logger.info(f"Human-like behavior: Retrieved {len(conversations)} conversations")
+            return conversations
+        else:
+            logger.error(f"Error: {response.status_code} - {response.text}")
+            return None
 
-    async def upload_file(self, file_path):
-        logger.info(f"Uploading file: {file_path}")
-        try:
-            await self.wait_for_page_load()
-            
-            file_input_selector = "input[type='file']"
-            await self.page.wait_for_selector(file_input_selector, state="attached", timeout=self.timeout)
-            
-            file_input = await self.page.query_selector(file_input_selector)
-            if file_input:
-                await file_input.set_input_files(file_path)
-                logger.debug("Set file input")
-                await self.page.wait_for_load_state("networkidle", timeout=self.timeout)
-                logger.debug("Waited for network idle after file upload")
-                logger.info(f"File uploaded successfully: {file_path}")
-            else:
-                logger.error("File upload input not found")
-                await self.reload_page()
-                raise Exception("File upload input not found")
-        except PlaywrightTimeoutError as e:
-            logger.error(f"Timeout error while uploading file: {e}", exc_info=True)
-            await self.reload_page()
-            raise
-        except Exception as e:
-            logger.error(f"An error occurred while uploading file: {e}", exc_info=True)
-            await self.reload_page()
-            raise        
+    def send_message(self, prompt, conversation_id, attachment=None, timeout=500, max_retries=3):
+        logger.info(f"Human-like behavior: Composing message for conversation {conversation_id}")
+        url = f"https://api.claude.ai/api/organizations/{self.organization_id}/chat_conversations/{conversation_id}/completion"
 
-    async def fetch_conversation_code(self):
-        logger.info("Fetching conversation code")
-        max_retries = 5
+        # Simulate human typing speed
+        typing_delay = len(prompt) * 0.01  # 50ms per character
+        logger.info(f"Human-like behavior: Typing message (simulated delay: {typing_delay:.2f} seconds)")
+        time.sleep(typing_delay)
+
+        payload = json.dumps({
+            "prompt": prompt,
+            "timezone": "Atlantic/Canary",
+            "attachments": [],
+            "files": [],
+            "rendering_mode": "raw"
+        })
+        logger.debug(f"Request payload: {payload}")
+
+        headers = {
+            'User-Agent': self.get_random_user_agent(),
+            'Accept': 'text/event-stream, text/event-stream',
+            'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8',
+            'Referer': 'https://claude.ai/',
+            'Content-Type': 'application/json',
+            'Origin': 'https://claude.ai',
+            'Cookie': f'{self.cookie}',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-site'
+        }
+        logger.debug(f"Request headers: {headers}")
+
         for attempt in range(max_retries):
             try:
-                current_url = self.page.url
-                match = re.search(r'/chat/([a-f0-9-]+)', current_url)
-                if match:
-                    new_chat_code = match.group(1)
-                    if new_chat_code != self.chat_code:
-                        self.chat_code = new_chat_code
-                        logger.info(f"New conversation code fetched: {self.chat_code}")
+                logger.info(f"Human-like behavior: Sending message (Attempt {attempt + 1}/{max_retries})")
+                response = requests.post(url, headers=headers, data=payload, impersonate="chrome110", timeout=timeout)
+                logger.info(f"Received response with status code: {response.status_code}")
+                logger.debug(f"Response headers: {response.headers}")
+                logger.debug(f"Raw response content: {response.content}")
+
+                if response.status_code != 200:
+                    logger.error(f"Received non-200 status code: {response.status_code}")
+                    if attempt < max_retries - 1:
+                        retry_delay = random.uniform(1, 3)
+                        logger.warning(f"Human-like behavior: Retrying in {retry_delay:.2f} seconds...")
+                        time.sleep(retry_delay)
+                        continue
                     else:
-                        logger.debug(f"Conversation code unchanged: {self.chat_code}")
-                    return
-                else:
-                    logger.warning(f"Could not extract conversation code from URL: {current_url}")
-                    await asyncio.sleep(1)  # Wait a bit before retrying
-            except Exception as e:
-                logger.error(f"An error occurred while fetching conversation code: {e}", exc_info=True)
-            
-        logger.error("Failed to fetch conversation code after multiple attempts")
-        self.chat_code = None
+                        return f"Error: Received status code {response.status_code} after {max_retries} attempts"
 
-    async def send_message(self, message, temperature=1.0, max_tokens=None):
-        logger.info(f"Sending message: {message}")
-        max_retries = 5
-        for attempt in range(max_retries):
-            try:
-                await self.wait_for_page_load()
-            
-                input_selector = "div[contenteditable='true']"
-                await self.page.wait_for_selector(input_selector, state="visible", timeout=30000)
-            
-                input_element = await self.page.query_selector(input_selector)
-                if input_element:
-                    await input_element.evaluate('(element) => element.innerHTML = ""')
-                    await self.page.fill(input_selector, message)
-                    logger.debug("Filled input with message")
-                else:
-                    logger.error("Input element not found")
-                    raise Exception("Input element not found")
-            
-                send_button_selector = "button[aria-label='Send Message']"
-                await self.page.wait_for_selector(send_button_selector, state="visible", timeout=30000)
-                logger.debug("Send button is visible")
+                decoded_data = response.content.decode("utf-8")
+                logger.debug(f"Decoded response data: {decoded_data}")
 
-                if self.message_count == 0 or not self.chat_code:
-                    await self.page.click(send_button_selector)
-                    logger.debug("Clicked send button")
-                    await self.page.wait_for_load_state("networkidle", timeout=30000)
-                    await self.fetch_conversation_code()
-                else:
-                    await self.page.click(send_button_selector)
-                    logger.debug("Clicked send button")
-            
-                self.message_count += 1
-                logger.info("Message sent successfully")
-                
-                logger.debug("Waiting for 6 seconds before checking for response")
-                await asyncio.sleep(6)
-                
-                # Check for capacity constraint error message
-                error_message_selector = "p:text-is('Due to unexpected capacity constraints, Claude is unable to respond to your message. Please try again soon.')"
-                try:
-                    error_message = await self.page.wait_for_selector(error_message_selector, timeout=5000)
-                    if error_message:
-                        logger.warning("Capacity constraint error detected. Closing error message and retrying.")
-                        close_button_selector = "button[data-radix-toast-announce-exclude]"
-                        close_button = await self.page.query_selector(close_button_selector)
-                        if close_button:
-                            await close_button.click()
-                            logger.debug("Closed error message")
-                        await asyncio.sleep(5)  # Wait a bit before retrying
-                        continue  # Retry sending the message
-                except PlaywrightTimeoutError:
-                    logger.debug("No capacity constraint error detected. Proceeding to fetch response.")
-                
-                response = await self.wait_for_response()
-                
-                # Apply max_tokens if specified
-                if max_tokens and isinstance(max_tokens, int):
-                    words = response.split()
-                    truncated_response = ' '.join(words[:max_tokens])
-                    if len(words) > max_tokens:
-                        truncated_response += "... [truncated]"
-                    return truncated_response
-                
-                return response
+                completions = []
+                for line in decoded_data.split('\n'):
+                    if line.startswith('data: '):
+                        try:
+                            data = json.loads(line[6:])
+                            if data['type'] == 'completion' and 'completion' in data:
+                                completions.append(data['completion'])
+                                logger.debug(f"Added completion: {data['completion']}")
+                        except json.JSONDecodeError:
+                            logger.warning(f"Failed to parse JSON: {line[6:]}")
 
-            except PlaywrightError as e:
-                logger.error(f"Playwright error in send_message: {str(e)}", exc_info=True)
+                answer = ''.join(completions)
+                logger.info(f"Human-like behavior: Received answer (length: {len(answer)})")
+                
+                # Simulate human reading time
+                reading_time = len(answer) * 0.01  # 10ms per character
+                logger.info(f"Human-like behavior: Reading response (simulated delay: {reading_time:.2f} seconds)")
+                time.sleep(reading_time)
+                
+                logger.debug(f"Final answer: {answer}")
+                return answer
+
+            except requests.RequestException as e:
+                logger.error(f"Request failed: {str(e)}")
                 if attempt < max_retries - 1:
-                    await asyncio.sleep(5)
+                    retry_delay = random.uniform(1, 3)
+                    logger.warning(f"Human-like behavior: Retrying in {retry_delay:.2f} seconds...")
+                    time.sleep(retry_delay)
                 else:
-                    raise
-            except Exception as e:
-                logger.error(f"An error occurred while sending message: {e}", exc_info=True)
-                await self.reload_page()
-                if attempt < max_retries - 1:
-                    await asyncio.sleep(5)
-                else:
-                    raise
+                    return f"Error: Request failed after {max_retries} attempts - {str(e)}"
 
-        logger.error("All attempts to send message failed")
-        return None
+        logger.error("Failed to get a valid response after all retries")
+        return "Error: Failed to get a valid response from the API"
 
-    async def wait_for_response(self):
-        logger.info("Waiting for Claude's response")
-        max_retries = 60
-        retry_interval = 2
+    def delete_conversation(self, conversation_id):
+        url = f"https://claude.ai/api/organizations/{self.organization_id}/chat_conversations/{conversation_id}"
 
-        for attempt in range(max_retries):
-            logger.debug(f"Attempt {attempt + 1} of {max_retries} to fetch response")
-            conversation_data = await self.fetch_conversation_data()
-            if conversation_data:
-                chat_messages = conversation_data.get('chat_messages', [])
-                logger.debug(f"Retrieved {len(chat_messages)} chat messages")
-                new_messages = [msg for msg in chat_messages if msg['index'] > self.last_message_index]
-                logger.debug(f"Found {len(new_messages)} new messages")
-                
-                if new_messages:
-                    latest_message = new_messages[-1]
-                    
-                    logger.debug(f"Latest message index: {latest_message['index']}")
-                    
-                    if latest_message['sender'] == 'assistant':
-                        self.last_message_index = latest_message['index']
-                        logger.info("Response received")
-                        logger.debug(f"Response content: {latest_message['text'][:100]}...")  # Log first 100 chars
-                        return latest_message['text']
-                
-            logger.debug(f"No response yet, waiting for {retry_interval} seconds")
-            await asyncio.sleep(retry_interval)
+        payload = json.dumps(f"{conversation_id}")
+        headers = {
+            'User-Agent': self.get_random_user_agent(),
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Content-Type': 'application/json',
+            'Content-Length': '38',
+            'Referer': 'https://claude.ai/chats',
+            'Origin': 'https://claude.ai',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-origin',
+            'Connection': 'keep-alive',
+            'Cookie': f'{self.cookie}',
+            'TE': 'trailers'
+        }
 
-        logger.warning("Timeout waiting for Claude's response")
-        return None
+        logger.info(f"Human-like behavior: Deleting conversation {conversation_id}")
+        time.sleep(random.uniform(0.5, 1.5))  # Simulate human delay
+        response = requests.delete(url, headers=headers, data=payload, impersonate="chrome110")
 
-    async def fetch_conversation_data(self):
-        logger.debug("Fetching conversation data")
-        if not self.chat_code:
-            logger.warning("No chat code available. Fetching conversation code first.")
-            await self.fetch_conversation_code()
-            if not self.chat_code:
-                logger.error("Failed to fetch conversation code.")
-                return None
+        if response.status_code == 204:
+            logger.info(f"Human-like behavior: Successfully deleted conversation {conversation_id}")
+        else:
+            logger.error(f"Failed to delete conversation {conversation_id}")
 
-        target_url = f"{self.api_base_url}/api/organizations/{self.organization_id}/chat_conversations/{self.chat_code}?tree=True&rendering_mode=raw"
-        logger.debug(f"Target URL: {target_url}")
+        return response.status_code == 204
+
+    def chat_conversation_history(self, conversation_id):
+        url = f"https://claude.ai/api/organizations/{self.organization_id}/chat_conversations/{conversation_id}"
+
+        headers = {
+            'User-Agent': self.get_random_user_agent(),
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Referer': 'https://claude.ai/chats',
+            'Content-Type': 'application/json',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-origin',
+            'Connection': 'keep-alive',
+            'Cookie': f'{self.cookie}'
+        }
+
+        logger.info(f"Human-like behavior: Fetching conversation history for {conversation_id}")
+        time.sleep(random.uniform(0.8, 1.8))  # Simulate human delay
+        response = requests.get(url, headers=headers, impersonate="chrome110")
+        logger.info(f"Human-like behavior: Retrieved conversation history")
+        return response.json()
+
+    def generate_uuid(self):
+        random_uuid = uuid.uuid4()
+        random_uuid_str = str(random_uuid)
+        formatted_uuid = f"{random_uuid_str[0:8]}-{random_uuid_str[9:13]}-{random_uuid_str[14:18]}-{random_uuid_str[19:23]}-{random_uuid_str[24:]}"
+        return formatted_uuid
+
+    def create_new_chat(self):
+        url = f"https://claude.ai/api/organizations/{self.organization_id}/chat_conversations"
+        uuid = self.generate_uuid()
         
+        payload = json.dumps({"uuid": uuid, "name": uuid+"ConvoName"})
+        headers = {
+            'User-Agent': self.get_random_user_agent(),
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Referer': 'https://claude.ai/chats',
+            'Content-Type': 'application/json',
+            'Origin': 'https://claude.ai',
+            'DNT': '1',
+            'Connection': 'keep-alive',
+            'Cookie': self.cookie,
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-origin',
+            'TE': 'trailers'
+        }
+
         try:
-            logger.debug("Switching to data fetching page")
-            await self.data_page.bring_to_front()
-            
-            logger.debug("Navigating to conversation data URL")
-            response = await self.data_page.goto(target_url, wait_until="networkidle", timeout=30000)
-            logger.debug(f"Response status: {response.status}")
-            content = await response.text()
-            logger.debug(f"Response content length: {len(content)} characters")
-            data = json.loads(content)
-            logger.debug(f"Parsed JSON data with {len(data.get('chat_messages', []))} messages")
-            
-            logger.debug("Switching back to chat page")
-            await self.page.bring_to_front()
-            
-            return data
+            logger.info("Human-like behavior: Creating new chat")
+            time.sleep(random.uniform(0.5, 1.5))  # Simulate human delay
+            response = requests.post(url, headers=headers, data=payload, impersonate="chrome110")
+            logger.debug(f"Create new chat response status: {response.status_code}")
+            logger.debug(f"Create new chat response content: {response.text}")
+            logger.info("Human-like behavior: New chat created successfully")
+            return response.json()
         except Exception as e:
-            logger.error(f"An error occurred while fetching conversation data: {e}", exc_info=True)
+            logger.error(f"Error in create_new_chat: {str(e)}")
             return None
 
-    async def get_all_conversations(self):
-        logger.info("Fetching all conversations")
-        target_url = f"{self.api_base_url}/api/organizations/{self.organization_id}/chat_conversations"
-        logger.debug(f"Target URL for all conversations: {target_url}")
-        
-        try:
-            logger.debug("Switching to data fetching page")
-            await self.data_page.bring_to_front()
-            
-            logger.debug("Navigating to all conversations URL")
-            response = await self.data_page.goto(target_url, wait_until="networkidle", timeout=30000)
-            logger.debug(f"Response status: {response.status}")
-            content = await response.text()
-            logger.debug(f"Response content length: {len(content)} characters")
-            data = json.loads(content)
-            logger.debug(f"Parsed JSON data with {len(data)} conversations")
-            
-            logger.debug("Switching back to chat page")
-            await self.page.bring_to_front()
-            
-            return data
-        except Exception as e:
-            logger.error(f"An error occurred while fetching all conversations: {e}", exc_info=True)
-            return None
-
-    async def set_model(self, model_name):
-        logger.info(f"Setting model to: {model_name}")
-        try:
-            await self.wait_for_page_load()
-            
-            model_selector = "button[data-testid='model-selector-dropdown']"
-            await self.page.click(model_selector)
-            logger.debug("Clicked model selector dropdown")
-
-            dropdown_selector = "div[role='menu']"
-            await self.page.wait_for_selector(dropdown_selector, state="visible", timeout=self.timeout)
-            logger.debug("Model dropdown is visible")
-
-            model_option = f"div[role='menuitem'] div.flex-1:text-is('{model_name}')"
-            await self.page.click(model_option)
-            logger.debug(f"Selected model: {model_name}")
-
-            await self.page.wait_for_selector(dropdown_selector, state="hidden", timeout=self.timeout)
-            logger.debug("Model dropdown has closed")
-
-            await self.page.wait_for_load_state("networkidle", timeout=self.timeout)
-            logger.debug("Waited for network idle after model selection")
-            self.current_model = model_name
-            logger.info(f"Model set to: {model_name}")
-            
-            # Reset conversation-related variables
-            self.message_count = 0
-            self.last_message_index = -1
-            self.chat_code = None
-
-            logger.info(f"Model set to: {model_name} and new conversation started")
-        except PlaywrightTimeoutError as e:
-            logger.error(f"Timeout error while setting model: {e}", exc_info=True)
-            await self.reload_page()
-            raise
-        except Exception as e:
-            logger.error(f"An error occurred while setting model: {e}", exc_info=True)
-            await self.reload_page()
-            raise
-
-    async def close(self):
-        logger.info("Closing UnofficialClaudeAPI instance")
-        try:
-            if self.page:
-                await self.page.close()
-                logger.debug("Chat page closed")
-            if self.data_page:
-                await self.data_page.close()
-                logger.debug("Data fetching page closed")
-            if self.playwright:
-                await self.playwright.stop()
-                logger.debug("Playwright stopped")
-        except Exception as e:
-            logger.error(f"An error occurred while closing: {e}", exc_info=True)
-        finally:
-            logger.info("UnofficialClaudeAPI instance closed")
-
-    async def health_check(self):
-        logger.info("Performing health check")
-        try:
-            await self.page.goto(self.base_url, timeout=self.timeout)
-            await self.wait_for_page_load()
-        
-            selectors = [
-                "div[contenteditable='true']",
-                "button[data-testid='model-selector-dropdown']"
-            ]
-        
-            for selector in selectors:
-                if not await self.page.query_selector(selector):
-                    logger.error(f"Health check failed: {selector} not found")
-                    return False
-        
-            input_selector = "div[contenteditable='true']"
-            await self.page.fill(input_selector, "Test message")
-        
-            send_button_selector = "button[aria-label='Send Message']"
-            try:
-                await self.page.wait_for_selector(send_button_selector, state="visible", timeout=5000)
-            except PlaywrightTimeoutError:
-                logger.error(f"Health check failed: {send_button_selector} not found after typing")
-                return False
-        
-            await self.page.evaluate("document.querySelector('div[contenteditable=\"true\"]').innerHTML = ''")
-        
-            logger.info("Health check passed")
+    def reset_all(self):
+        conversations = self.list_all_conversations()
+        if conversations:
+            logger.info(f"Human-like behavior: Resetting all conversations")
+            for conversation in conversations:
+                conversation_id = conversation['uuid']
+                self.delete_conversation(conversation_id)
+                time.sleep(random.uniform(0.3, 0.7))  # Simulate human delay between deletions
+            logger.info("Human-like behavior: All conversations reset")
             return True
-        except Exception as e:
-            logger.error(f"Health check failed: {e}", exc_info=True)
+        logger.info("Human-like behavior: No conversations to reset")
+        return False
+
+    def upload_attachment(self, file_path):
+        logger.info(f"Human-like behavior: Preparing to upload attachment {file_path}")
+        if file_path.endswith('.txt'):
+            file_name = os.path.basename(file_path)
+            file_size = os.path.getsize(file_path)
+            file_type = "text/plain"
+            with open(file_path, 'r', encoding='utf-8') as file:
+                file_content = file.read()
+
+            logger.info(f"Human-like behavior: Uploaded text file {file_name}")
+            return {
+                "file_name": file_name,
+                "file_type": file_type,
+                "file_size": file_size,
+                "extracted_content": file_content
+            }
+        url = 'https://claude.ai/api/convert_document'
+        headers = {
+            'User-Agent': self.get_random_user_agent(),
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Referer': 'https://claude.ai/chats',
+            'Origin': 'https://claude.ai',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-origin',
+            'Connection': 'keep-alive',
+            'Cookie': f'{self.cookie}',
+            'TE': 'trailers'
+        }
+
+        file_name = os.path.basename(file_path)
+        content_type = self.get_content_type(file_path)
+
+        files = {
+            'file': (file_name, open(file_path, 'rb'), content_type),
+            'orgUuid': (None, self.organization_id)
+        }
+
+        logger.info(f"Human-like behavior: Uploading file {file_name}")
+        time.sleep(random.uniform(1, 3))  # Simulate human delay for file upload
+        response = req.post(url, headers=headers, files=files)
+        if response.status_code == 200:
+            logger.info(f"Human-like behavior: Successfully uploaded file {file_name}")
+            return response.json()
+        else:
+            logger.error(f"Failed to upload file {file_name}")
             return False
+
+    def rename_chat(self, title, conversation_id):
+        url = "https://claude.ai/api/rename_chat"
+
+        payload = json.dumps({
+            "organization_uuid": f"{self.organization_id}",
+            "conversation_uuid": f"{conversation_id}",
+            "title": f"{title}"
+        })
+        headers = {
+            'User-Agent': self.get_random_user_agent(),
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Content-Type': 'application/json',
+            'Referer': 'https://claude.ai/chats',
+            'Origin': 'https://claude.ai',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-origin',
+            'Connection': 'keep-alive',
+            'Cookie': f'{self.cookie}',
+            'TE': 'trailers'
+        }
+
+        logger.info(f"Human-like behavior: Renaming conversation {conversation_id} to '{title}'")
+        time.sleep(random.uniform(0.5, 1.5))  # Simulate human delay
+        response = requests.post(url, headers=headers, data=payload, impersonate="chrome110")
+
+        if response.status_code == 200:
+            logger.info(f"Human-like behavior: Successfully renamed conversation to '{title}'")
+        else:
+            logger.error(f"Failed to rename conversation {conversation_id}")
+
+        return response.status_code == 200
+
+    def get_random_user_agent(self):
+        user_agents = [
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.1 Safari/605.1.15',
+            'Mozilla/5.0 (X11; Linux x86_64; rv:89.0) Gecko/20100101 Firefox/89.0',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:89.0) Gecko/20100101 Firefox/89.0',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36',
+            'Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.1 Mobile/15E148 Safari/604.1'
+        ]
+        return random.choice(user_agents)
