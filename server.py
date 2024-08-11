@@ -1,27 +1,29 @@
 import asyncio
 import json
 import time
-from typing import List, Optional
+from typing import List, Optional, Union
 from fastapi import FastAPI, HTTPException, Depends, Security
 from fastapi.security.api_key import APIKeyHeader
 from pydantic import BaseModel
 from starlette.responses import StreamingResponse
 from claude_api import Client as ClaudeClient
 import logging
+from sentence_transformers import SentenceTransformer
 
 app = FastAPI(title="Claude-compatible OpenAI API")
 
 # Set up logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # You'll need to set these values appropriately
-COOKIE = "__stripe_mid=e9153cd4-5011-4cbd-af18-87e7e863b0620764fe; _gcl_au=1.1.1106054366.1718907813; _fbp=fb.1.1718907813879.324036528159443754; __ssid=1392ae80aa353d71067177c732b7aaa; intercom-device-id-lupk8zyo=9ed36bd1-07cd-4a87-a93f-e15210017630; lastActiveOrg=05719259-a917-4a27-a78e-56ec78cc9b93; _rdt_uuid=1711054816455.57490846-04aa-4c80-9cd7-3abed8a61969; sessionKey=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; CH-prefers-color-scheme=dark; activitySessionId=fefa5509-e15e-4c96-917c-edebfb093525; intercom-session-lupk8zyo=YitKaEpvQ2tYVzZaUmc1TkdreUdlb3dJOGhhK0d4TElnTzEzWFlCZk1qQkhOVzMwcDFFdVhSZ2xBV0tITjluYy0tclpYMXhCd0wzZUxMMmZXTmgxenBoUT09--f8dd73e738a923e55418ee466eb8db2e65e2ae2f; cf_clearance=v4yfJ.FbyyL9DbyHCUp.PWRdYVXT_TCDN4c_qfg3DeQ-1723289344-1.0.1.1-GcWjL1jPhzewemoA00ImP1B4jpwQmqZ.AQYTOXqntWRMOb.ZZbr3nvd_vlhZmREHpiBSTx3Etlxi.4txZS0TiQ; __cf_bm=9tAgxyONmRAiB5Lxy0lgQD5w8fianrV1AKB.twiEbao-1723290534-1.0.1.1-CVFQrHVwgbcNrMjVSedVemjvrsfZZt4OU3GcA2O1CjijWZO4E18ft4UT1vDMUb8po6J.ABjCreMedv56ZS5.QQ"
+COOKIE = "__stripe_mid=e9153cd4-5011-4cbd-af18-87e7e863b0620764fe; _gcl_au=1.1.1106054366.1718907813; _fbp=fb.1.1718907813879.324036528159443754; __ssid=1392ae80aa353d71067177c732b7aaa; intercom-device-id-lupk8zyo=9ed36bd1-07cd-4a87-a93f-e15210017630; lastActiveOrg=05719259-a917-4a27-a78e-56ec78cc9b93; _rdt_uuid=1711054816455.57490846-04aa-4c80-9cd7-3abed8a61969; activitySessionId=b246c6e6-01f5-45c7-a29e-30d163c6f41f; sessionKey=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; cf_clearance=3qzsAaPRt9240e6QaOEJSRjRz_WzoBD3LDt6RMXYDtY-1723390181-1.0.1.1-vV6jrejGnvKqgjyEw4CRzkL9pJP0L0GSbz_4ZnkaJ25b7jvqgHZYf8_LsGglZPPLvitkfcPWowdggNp5KuSTrQ; CH-prefers-color-scheme=light; intercom-session-lupk8zyo=YlVuc0R0RGx1SFE2a05aeGZ0My9Lclk2Z05UcjhGSUZsWnk0WnZsVWxxdUVvd3JUNHFKdlI2c0NmS1pJbEJ5Ky0tWVRKdlF2cTd4WEE4Ym1oMWdrREkrdz09--23b3446be06fe3b578cc20e077b0620c51af0baa; __cf_bm=76M5FTh3sf5uPGSm0ur.AcXf7D838q7gmcqa4vY2.ao-1723391981-1.0.1.1-S2Wo_fRN0PnNS_5LqVUUgvSaCjmATg7hecgCmKiLjmlYmU53_zDH3stCOGeEjh7MhXlsoyLOR7dDyLJUBv3pgg"
 API_KEY = "sk_claude_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6"  # Set this to your desired API key
 
 api_key_header = APIKeyHeader(name="Authorization", auto_error=False)
 
 claude_client = None
+embedding_model = None
 
 class ChatMessage(BaseModel):
     role: str
@@ -34,6 +36,10 @@ class ChatCompletionRequest(BaseModel):
     temperature: Optional[float] = 0.7
     stream: Optional[bool] = False
 
+class EmbeddingRequest(BaseModel):
+    model: str
+    input: Union[str, List[str]]
+
 async def get_api_key(api_key_header: str = Security(api_key_header)):
     if api_key_header and api_key_header.startswith("Bearer "):
         key = api_key_header.split(" ")[1]
@@ -43,40 +49,11 @@ async def get_api_key(api_key_header: str = Security(api_key_header)):
 
 @app.on_event("startup")
 async def startup_event():
-    global claude_client
+    global claude_client, embedding_model
     claude_client = ClaudeClient(COOKIE)
-
-async def handle_rate_limit(reset_time):
-    wait_time = reset_time - time.time() + 5400  # 1.5 hours (5400 seconds) after reset time
-    if wait_time > 0:
-        logger.info(f"Rate limit exceeded. Waiting for {wait_time/3600:.2f} hours before retrying.")
-        await asyncio.sleep(wait_time)
-    else:
-        logger.info("Rate limit reset time has already passed. Retrying immediately.")
-
-async def send_message_with_retry(claude_message, conversation_id, max_retries=3):
-    for attempt in range(max_retries):
-        try:
-            response = claude_client.send_message(claude_message, conversation_id)
-            return response
-        except Exception as e:
-            error_message = str(e)
-            if "rate_limit_error" in error_message:
-                try:
-                    error_data = json.loads(json.loads(error_message)['error']['message'])
-                    reset_time = error_data.get('resetsAt')
-                    if reset_time:
-                        await handle_rate_limit(reset_time)
-                    else:
-                        logger.error("Rate limit error without reset time. Retrying after 1 hour.")
-                        await asyncio.sleep(3600)
-                except json.JSONDecodeError:
-                    logger.error("Failed to parse rate limit error message. Retrying after 1 hour.")
-                    await asyncio.sleep(3600)
-            else:
-                logger.error(f"Error sending message: {error_message}")
-                if attempt == max_retries - 1:
-                    raise
+    logger.debug(f"Claude client initialized with organization ID: {claude_client.organization_id}")
+    embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+    logger.debug("Embedding model initialized")
 
 @app.post("/v1/chat/completions")
 async def chat_completions(request: ChatCompletionRequest, api_key: str = Depends(get_api_key)):
@@ -86,53 +63,52 @@ async def chat_completions(request: ChatCompletionRequest, api_key: str = Depend
     # Prepare the message for Claude
     claude_message = "\n".join([f"{msg.role}: {msg.content}" for msg in request.messages])
 
-    # Create a new conversation
-    conversation = claude_client.create_new_chat()
-    conversation_id = conversation['uuid']
-
-    if request.stream:
-        return StreamingResponse(stream_claude_response(claude_message, conversation_id, request), media_type="text/event-stream")
-    
-    # Non-streaming response
     try:
-        response = await send_message_with_retry(claude_message, conversation_id)
-        return format_claude_response(response, request)
+        # Create a new conversation
+        logger.info("Creating new chat conversation")
+        conversation = claude_client.create_new_chat()
+        logger.debug(f"Create new chat response: {conversation}")
+        conversation_id = conversation.get('uuid')
+        if not conversation_id:
+            logger.error(f"Failed to get conversation UUID. Full response: {conversation}")
+            raise HTTPException(status_code=500, detail="Failed to create new conversation")
+
+        # Send message
+        logger.info(f"Sending message to conversation {conversation_id}")
+        response = claude_client.send_message(claude_message, conversation_id)
+        logger.debug(f"Received response: {response[:100]}...")  # Log first 100 chars of response
+
+        if request.stream:
+            return StreamingResponse(stream_claude_response(response, request), media_type="text/event-stream")
+        else:
+            return format_claude_response(response, request)
     except Exception as e:
+        logger.exception(f"An error occurred: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-async def stream_claude_response(message: str, conversation_id: str, request: ChatCompletionRequest):
-    try:
-        response = await send_message_with_retry(message, conversation_id)
-        words = response.split()
-        for i, word in enumerate(words):
-            chunk = {
-                "id": f"chatcmpl-{i}",
-                "object": "chat.completion.chunk",
-                "created": int(time.time()),
-                "model": request.model,
-                "choices": [{"delta": {"content": word + " "}, "index": 0, "finish_reason": None}],
-            }
-            yield f"data: {json.dumps(chunk)}\n\n"
-            await asyncio.sleep(0.1)  # Simulate streaming delay
-        
-        # Send the final chunk
-        final_chunk = {
-            "id": f"chatcmpl-{len(words)}",
+async def stream_claude_response(response: str, request: ChatCompletionRequest):
+    words = response.split()
+    for i, word in enumerate(words):
+        chunk = {
+            "id": f"chatcmpl-{i}",
             "object": "chat.completion.chunk",
             "created": int(time.time()),
             "model": request.model,
-            "choices": [{"delta": {}, "index": 0, "finish_reason": "stop"}],
+            "choices": [{"delta": {"content": word + " "}, "index": 0, "finish_reason": None}],
         }
-        yield f"data: {json.dumps(final_chunk)}\n\n"
-        yield "data: [DONE]\n\n"
-    except Exception as e:
-        error_chunk = {
-            "error": {
-                "message": str(e),
-                "type": "internal_error",
-            }
-        }
-        yield f"data: {json.dumps(error_chunk)}\n\n"
+        yield f"data: {json.dumps(chunk)}\n\n"
+        await asyncio.sleep(0.1)  # Simulate streaming delay
+    
+    # Send the final chunk
+    final_chunk = {
+        "id": f"chatcmpl-{len(words)}",
+        "object": "chat.completion.chunk",
+        "created": int(time.time()),
+        "model": request.model,
+        "choices": [{"delta": {}, "index": 0, "finish_reason": "stop"}],
+    }
+    yield f"data: {json.dumps(final_chunk)}\n\n"
+    yield "data: [DONE]\n\n"
 
 def format_claude_response(response: str, request: ChatCompletionRequest):
     return {
@@ -155,6 +131,36 @@ def format_claude_response(response: str, request: ChatCompletionRequest):
         }
     }
 
+@app.post("/v1/embeddings")
+async def create_embedding(request: EmbeddingRequest, api_key: str = Depends(get_api_key)):
+    if not embedding_model:
+        raise HTTPException(status_code=500, detail="Embedding model not initialized")
+
+    try:
+        if isinstance(request.input, str):
+            embeddings = embedding_model.encode([request.input]).tolist()
+        else:
+            embeddings = embedding_model.encode(request.input).tolist()
+
+        return {
+            "object": "list",
+            "data": [
+                {
+                    "object": "embedding",
+                    "embedding": embedding,
+                    "index": i
+                } for i, embedding in enumerate(embeddings)
+            ],
+            "model": request.model,
+            "usage": {
+                "prompt_tokens": sum(len(text.split()) for text in (request.input if isinstance(request.input, list) else [request.input])),
+                "total_tokens": sum(len(text.split()) for text in (request.input if isinstance(request.input, list) else [request.input]))
+            }
+        }
+    except Exception as e:
+        logger.exception(f"An error occurred during embedding: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8008)

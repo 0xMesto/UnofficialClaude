@@ -90,7 +90,7 @@ class Client:
         url = f"https://api.claude.ai/api/organizations/{self.organization_id}/chat_conversations/{conversation_id}/completion"
 
         # Simulate human typing speed
-        typing_delay = len(prompt) * 0.01  # 50ms per character
+        typing_delay = len(prompt) * 0.005  # 50ms per character
         logger.info(f"Human-like behavior: Typing message (simulated delay: {typing_delay:.2f} seconds)")
         time.sleep(typing_delay)
 
