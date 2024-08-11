@@ -15,7 +15,7 @@ class Client:
 
     def __init__(self, cookie):
         self.cookie = cookie
-        self.organization_id = "05719259-a917-4a27-a78e-56ec78cc9b93"
+        self.organization_id = "ADD your Organization id here"
         logger.debug(f"Initialized Client with organization_id: {self.organization_id}")
 
     def get_organization_id(self):
