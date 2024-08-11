@@ -13,22 +13,22 @@ logger = logging.getLogger(__name__)
 
 class Client:
 
-    def __init__(self, cookie):
+    def __init__(self, cookie, model="claude-3-opus-20240229"):
         self.cookie = cookie
-        self.organization_id = "ADD your Organization id here"
-        logger.debug(f"Initialized Client with organization_id: {self.organization_id}")
+        self.organization_id = "05719259-a917-4a27-a78e-56ec78cc9b93"
+        self.model = model
+        logger.debug(f"Initialized Client with organization_id: {self.organization_id} and model: {self.model}")
 
     def get_organization_id(self):
         url = "https://claude.ai/api/organizations"
         
         headers = {
             'User-Agent': self.get_random_user_agent(),
-            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept': '*/*',
+            'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8',
             'Referer': 'https://claude.ai/chats',
             'Content-Type': 'application/json',
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': 'same-origin',
+            'Origin': 'https://claude.ai',
             'Connection': 'keep-alive',
             'Cookie': f'{self.cookie}'
         }
@@ -39,8 +39,8 @@ class Client:
             response = requests.get(url, headers=headers, impersonate="chrome110")
             res = json.loads(response.text)
             logger.debug(f"API response for organizations: {res}")
-            uuid = "05719259-a917-4a27-a78e-56ec78cc9b93"
-            logger.debug(f"Returning hardcoded UUID: {uuid}")
+            uuid = self.organization_id  # Using the hardcoded value
+            logger.debug(f"Returning organization UUID: {uuid}")
             logger.info("Human-like behavior: Retrieved organization ID")
             return uuid
         except Exception as e:
@@ -63,12 +63,11 @@ class Client:
 
         headers = {
             'User-Agent': self.get_random_user_agent(),
-            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept': '*/*',
+            'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8',
             'Referer': 'https://claude.ai/chats',
             'Content-Type': 'application/json',
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': 'same-origin',
+            'Origin': 'https://claude.ai',
             'Connection': 'keep-alive',
             'Cookie': f'{self.cookie}'
         }
@@ -97,6 +96,7 @@ class Client:
         payload = json.dumps({
             "prompt": prompt,
             "timezone": "Atlantic/Canary",
+            "model": self.model,
             "attachments": [],
             "files": [],
             "rendering_mode": "raw"
@@ -110,10 +110,7 @@ class Client:
             'Referer': 'https://claude.ai/',
             'Content-Type': 'application/json',
             'Origin': 'https://claude.ai',
-            'Cookie': f'{self.cookie}',
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': 'same-site'
+            'Cookie': f'{self.cookie}'
         }
         logger.debug(f"Request headers: {headers}")
 
@@ -178,17 +175,13 @@ class Client:
         payload = json.dumps(f"{conversation_id}")
         headers = {
             'User-Agent': self.get_random_user_agent(),
-            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept': '*/*',
+            'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8',
             'Content-Type': 'application/json',
-            'Content-Length': '38',
             'Referer': 'https://claude.ai/chats',
             'Origin': 'https://claude.ai',
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': 'same-origin',
             'Connection': 'keep-alive',
-            'Cookie': f'{self.cookie}',
-            'TE': 'trailers'
+            'Cookie': f'{self.cookie}'
         }
 
         logger.info(f"Human-like behavior: Deleting conversation {conversation_id}")
@@ -207,12 +200,11 @@ class Client:
 
         headers = {
             'User-Agent': self.get_random_user_agent(),
-            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept': '*/*',
+            'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8',
             'Referer': 'https://claude.ai/chats',
             'Content-Type': 'application/json',
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': 'same-origin',
+            'Origin': 'https://claude.ai',
             'Connection': 'keep-alive',
             'Cookie': f'{self.cookie}'
         }
@@ -230,23 +222,23 @@ class Client:
         return formatted_uuid
 
     def create_new_chat(self):
-        url = f"https://claude.ai/api/organizations/{self.organization_id}/chat_conversations"
+        url = f"https://api.claude.ai/api/organizations/{self.organization_id}/chat_conversations"
         uuid = self.generate_uuid()
         
-        payload = json.dumps({"uuid": uuid, "name": uuid+"ConvoName"})
+        payload = json.dumps({
+            "uuid": uuid,
+            "name": "",
+            "model": self.model
+        })
         headers = {
             'User-Agent': self.get_random_user_agent(),
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Referer': 'https://claude.ai/chats',
+            'Accept': '*/*',
+            'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8',
             'Content-Type': 'application/json',
             'Origin': 'https://claude.ai',
-            'DNT': '1',
+            'Referer': 'https://claude.ai/',
             'Connection': 'keep-alive',
-            'Cookie': self.cookie,
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': 'same-origin',
-            'TE': 'trailers'
+            'Cookie': self.cookie
         }
 
         try:
@@ -293,15 +285,12 @@ class Client:
         url = 'https://claude.ai/api/convert_document'
         headers = {
             'User-Agent': self.get_random_user_agent(),
-            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept': '*/*',
+            'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8',
             'Referer': 'https://claude.ai/chats',
             'Origin': 'https://claude.ai',
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': 'same-origin',
             'Connection': 'keep-alive',
-            'Cookie': f'{self.cookie}',
-            'TE': 'trailers'
+            'Cookie': f'{self.cookie}'
         }
 
         file_name = os.path.basename(file_path)
@@ -332,16 +321,13 @@ class Client:
         })
         headers = {
             'User-Agent': self.get_random_user_agent(),
-            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept': '*/*',
+            'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8',
             'Content-Type': 'application/json',
             'Referer': 'https://claude.ai/chats',
             'Origin': 'https://claude.ai',
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': 'same-origin',
             'Connection': 'keep-alive',
-            'Cookie': f'{self.cookie}',
-            'TE': 'trailers'
+            'Cookie': f'{self.cookie}'
         }
 
         logger.info(f"Human-like behavior: Renaming conversation {conversation_id} to '{title}'")
@@ -365,3 +351,54 @@ class Client:
             'Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.1 Mobile/15E148 Safari/604.1'
         ]
         return random.choice(user_agents)
+
+    def get_available_models(self):
+        # This is a placeholder method. In a real implementation, you would fetch this from the API.
+        # For now, we'll return a list of known Claude models.
+        return [
+            "claude-3-opus-20240229",
+            "claude-3-sonnet-20240229",
+            "claude-3-haiku-20240307",
+            "claude-2.1",
+            "claude-2.0"
+        ]
+
+    def set_model(self, model):
+        available_models = self.get_available_models()
+        if model in available_models:
+            self.model = model
+            logger.info(f"Model set to: {self.model}")
+        else:
+            logger.error(f"Invalid model: {model}. Available models are: {', '.join(available_models)}")
+            raise ValueError(f"Invalid model: {model}")
+
+    def get_current_model(self):
+        return self.model
+
+# End of Client class
+
+# You might want to add some utility functions or additional classes here if needed
+
+if __name__ == "__main__":
+    # This block can be used for testing or as a simple CLI interface
+    cookie = "YOUR_COOKIE_HERE"  # Replace with actual cookie value
+    client = Client(cookie)
+
+    print("Available models:", client.get_available_models())
+    print("Current model:", client.get_current_model())
+
+    # Example of creating a new chat and sending a message
+    new_chat = client.create_new_chat()
+    if new_chat:
+        conversation_id = new_chat['uuid']
+        response = client.send_message("Hello, Claude!", conversation_id)
+        print("Claude's response:", response)
+
+    # Example of changing the model
+    try:
+        client.set_model("claude-3-sonnet-20240229")
+        print("Model changed to:", client.get_current_model())
+    except ValueError as e:
+        print(e)
+
+    # Add more examples or test cases as needed

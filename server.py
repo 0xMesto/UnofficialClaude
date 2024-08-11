@@ -17,7 +17,7 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %
 logger = logging.getLogger(__name__)
 
 # You'll need to set these values appropriately
-COOKIE = "add your cookie heere"
+COOKIE = "YOUR_COOKIE_HERE"  # Replace with actual cookie value
 API_KEY = "sk_claude_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6"  # Set this to your desired API key
 
 api_key_header = APIKeyHeader(name="Authorization", auto_error=False)
@@ -30,7 +30,7 @@ class ChatMessage(BaseModel):
     content: str
 
 class ChatCompletionRequest(BaseModel):
-    model: str = "claude-3-5-sonnet-20240620"
+    model: str = "claude-3-opus-20240229"
     messages: List[ChatMessage]
     max_tokens: Optional[int] = 512
     temperature: Optional[float] = 0.7
@@ -55,15 +55,27 @@ async def startup_event():
     embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
     logger.debug("Embedding model initialized")
 
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy"}
+
+@app.get("/v1/models")
+async def get_models(api_key: str = Depends(get_api_key)):
+    if not claude_client:
+        raise HTTPException(status_code=500, detail="Claude API not initialized")
+    return {"data": claude_client.get_available_models()}
+
 @app.post("/v1/chat/completions")
 async def chat_completions(request: ChatCompletionRequest, api_key: str = Depends(get_api_key)):
     if not claude_client:
         raise HTTPException(status_code=500, detail="Claude API not initialized")
 
-    # Prepare the message for Claude
-    claude_message = "\n".join([f"{msg.role}: {msg.content}" for msg in request.messages])
-
     try:
+        claude_client.set_model(request.model)
+        
+        # Prepare the message for Claude
+        claude_message = "\n".join([f"{msg.role}: {msg.content}" for msg in request.messages])
+
         # Create a new conversation
         logger.info("Creating new chat conversation")
         conversation = claude_client.create_new_chat()
@@ -82,6 +94,9 @@ async def chat_completions(request: ChatCompletionRequest, api_key: str = Depend
             return StreamingResponse(stream_claude_response(response, request), media_type="text/event-stream")
         else:
             return format_claude_response(response, request)
+    except ValueError as e:
+        logger.error(f"Invalid model specified: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception(f"An error occurred: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
