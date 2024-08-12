@@ -1,0 +1,8 @@
+# requirements.txt
+fastapi
+uvicorn
+pydantic
+starlette
+requests
+curl_cffi
+sentence_transformers
