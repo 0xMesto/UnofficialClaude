@@ -1,8 +1,11 @@
-# requirements.txt
-fastapi
-uvicorn
-pydantic
-starlette
-requests
-curl_cffi
-sentence_transformers
+fastapi==0.103.2
+uvicorn==0.23.2
+pydantic==2.4.2
+starlette==0.27.0
+requests==2.31.0
+curl_cffi==0.5.10
+sentence-transformers==2.2.2
+python-dotenv==1.0.0
+uuid==1.30
+logging==0.4.9.6
+asyncio==3.4.3

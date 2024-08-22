@@ -1,108 +1,136 @@
-# UnofficialClaude
+# Claude API Unofficial Client Setup Instructions
 
-This repository contains a Python wrapper for interacting with the Claude AI API, along with a FastAPI server that provides OpenAI-compatible endpoints for Claude's functionality.
+This guide will walk you through setting up and running the unofficial Claude API client. This client allows you to interact with Claude AI programmatically, similar to how you might use OpenAI's API.
 
-## Components
+## Purpose
 
-1. **`claude_api.py`**: The main client for interacting with Claude AI.
-2. **`console_chat.py`**: A simple console-based chat interface using the Claude API.
-3. **`server.py`**: A FastAPI server that provides OpenAI-compatible endpoints for Claude.
+This script provides a way to:
+1. Interact with Claude AI through a Python API
+2. Run a local server that mimics OpenAI's API structure but connects to Claude
+3. Perform various tasks like chatting, generating embeddings, and managing conversations
 
-## Features
+## Prerequisites
 
-- Interact with Claude AI using a Python client.
-- Create and manage chat conversations.
-- Upload attachments.
-- Rename chat conversations.
-- Simulate human-like behavior with randomized delays.
-- OpenAI-compatible API endpoints for chat completions and embeddings.
-- Simple console chat interface.
-- Can be connected as an API with **AutoGen**, **Agent-zero**, **Perplexica**, or any other repository that supports integration with a local LLM.
+* Python 3.7 or higher installed
+* A Claude AI account
+* Basic familiarity with command line operations
 
-## Installation
+## Setup Instructions
 
-1. Clone this repository:
+### 1. Clone the Repository
 
-    ```bash
-    git clone https://github.com/yourusername/claude-api-wrapper.git
-    cd claude-api-wrapper
-    ```
+First, clone the repository containing the Claude API scripts to your local machine.
 
-2. Install the required dependencies:
+```bash
+git clone [repository_url]
+cd [repository_name]
+```
 
-    ```bash
-    pip install -r requirements.txt
-    ```
+### 2. Set Up the Environment
 
-## Usage
+Create a virtual environment and activate it:
 
-### Claude API Client
+```bash
+python -m venv venv
+source venv/bin/activate  # On Windows, use: venv\Scripts\activate
+```
 
-To use the Claude API client, you need to have a valid cookie for authentication:
+Install the required packages:
+
+```bash
+pip install -r requirements.txt
+```
+
+### 3. Configure Environment Variables
+
+Create a file named `.env` in the root directory of the project. You'll need to fill this with several important values:
+
+#### a. Get Your Organization ID
+
+1. Log in to Claude AI in your web browser
+2. In the same browser session, open a new tab and go to: https://api.claude.ai/api/organizations
+3. You'll see a JSON response. Look for the `uuid` field of your desired organization
+4. Copy this UUID
+
+#### b. Get Your Session Cookie
+
+1. While still on the Claude AI website, open your browser's developer tools (F12 or right-click and select "Inspect")
+2. Go to the "Application" or "Storage" tab
+3. Find the Cookies section and look for the `claude.ai` cookie
+4. Copy the entire cookie string
+
+#### c. Set Up the `.env` File
+
+Open the `.env` file and add the following lines, replacing the placeholders with your actual values:
+
+```bash
+ORGANIZATION_ID=your_organization_uuid_here
+COOKIE=your_full_cookie_string_here
+API_KEY=your_chosen_api_key_here  # You can make this up; it's for your local API
+```
+
+### 4. Running the Scripts
+
+#### a. Console Chat
+
+To start a console-based chat with Claude:
+
+```bash
+python console_chat.py
+```
+
+This will allow you to interact with Claude directly in your terminal.
+
+##### Video Showcase
+*Add a link to a video demo of `console_chat.py` here.*
+
+#### b. API Server
+
+To run the local API server that mimics the OpenAI API structure:
+
+```bash
+python server.py
+```
+
+This will start a server on `http://localhost:8008`. You can now make API calls to this address as if it were the OpenAI API, but it will use Claude instead.
+
+### 5. Using the API
+
+With the server running, you can make requests to it using tools like `curl` or any programming language. Here's an example using Python's `requests` library:
 
 ```python
-from claude_api import Client
+import requests
 
-cookie = "YOUR_COOKIE_HERE"
-client = Client(cookie)
-
-# Create a new chat
-new_chat = client.create_new_chat()
-conversation_id = new_chat['uuid']
-
-# Send a message
-response = client.send_message("Hello, Claude!", conversation_id)
-print(response)
+api_url = "http://localhost:8008/v1/chat/completions"
+headers = {
+    "Authorization": f"Bearer {your_api_key_here}",
+    "Content-Type": "application/json"
+}
+data = {
+    "model": "claude-3-5-sonnet-20240620",
+    "messages": [{"role": "user", "content": "Hello, Claude!"}]
+}
+response = requests.post(api_url, json=data, headers=headers)
+print(response.json())
 ```
-## Console Chat
 
-To use the console chat interface:
+## Important Notes
 
-1. Set your cookie in the `get_cookie()` function in `console_chat.py`.
-2. Run the script:
+* Keep your `.env` file secure and never share it publicly.
+* The cookie and organization ID are sensitive. Only use them on trusted devices.
+* This is an unofficial client. Be aware of Claude AI's terms of service when using it.
+* The API mimics OpenAI's structure but may not be 100% compatible with all OpenAI API features.
 
-    ```bash
-    python console_chat.py
-    ```
+## Troubleshooting
 
-## FastAPI Server
-
-To run the FastAPI server:
-
-1. Set your cookie and desired API key in `server.py`.
-2. Run the server:
-
-    ```bash
-    python server.py
-    ```
-
-The server will start on `http://localhost:8008`. You can then use the following endpoints:
-
-- **GET** `/health`: Check server health.
-- **GET** `/v1/models`: Get available Claude models.
-- **POST** `/v1/chat/completions`: Create a chat completion.
-- **POST** `/v1/embeddings`: Create embeddings.
-
-## Configuration
-
-- Set the `COOKIE` variable in `server.py` to your Claude AI cookie.
-- Set the `API_KEY` variable in `server.py` to your desired API key for authentication.
-
-## Notes
-
-- This wrapper simulates human-like behavior by adding random delays between actions.
-- The FastAPI server provides OpenAI-compatible endpoints, allowing you to use Claude with existing OpenAI-based applications.
-- The embedding functionality uses the `sentence-transformers` library with the `all-MiniLM-L6-v2` model.
-- The server can be connected as an API with tools such as **AutoGen**, **Agent-zero**, **Perplexica**, or any other repo that supports integration with local LLMs.
+* If you encounter errors, double-check your cookie and organization ID.
+* Ensure you're using the correct API key in your requests to the local server.
+* Check the console output for any error messages when running the scripts.
 
 ## Disclaimer
 
-This project is not officially associated with Anthropic or OpenAI. Use it responsibly and in accordance with the terms of service of the respective AI providers.
+This project is not affiliated with or endorsed by Claude AI. Use this client at your own risk, and make sure to comply with Claude AI's terms of service.
 
-## Contributing
+## Feedback and Contributions
 
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## License
-
-This project is open-source and available under the [MIT License](LICENSE).
+If you encounter issues or have suggestions for improvements, please open an issue on the project's GitHub repository.
