@@ -82,7 +82,9 @@ python console_chat.py
 This will allow you to interact with Claude directly in your terminal.
 
 ##### Video Showcase
-*Add a link to a video demo of `console_chat.py` here.*
+
+https://github.com/user-attachments/assets/fe4c88dd-8b01-4bbb-96d0-d042b67f7369
+
 
 #### b. API Server
 
