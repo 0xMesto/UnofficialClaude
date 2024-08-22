@@ -1,12 +1,16 @@
 import os
 import logging
 from claude_api import Client
+import os
+from dotenv import load_dotenv
 
+# Load environment variables from .env file
+load_dotenv()
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 def get_cookie():
-    cookie = "add your cookie heere"
+    cookie = os.getenv('COOKIE')
     if not cookie:
         raise ValueError("Please set the 'cookie' variable.")
     logger.debug(f"Cookie retrieved: {cookie[:20]}...") # Log first 20 chars of cookie

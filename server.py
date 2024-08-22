@@ -1,6 +1,7 @@
 import asyncio
 import json
 import time
+import re
 from typing import List, Optional, Union
 from fastapi import FastAPI, HTTPException, Depends, Security
 from fastapi.security.api_key import APIKeyHeader
@@ -9,7 +10,11 @@ from starlette.responses import StreamingResponse
 from claude_api import Client as ClaudeClient
 import logging
 from sentence_transformers import SentenceTransformer
+import os
+from dotenv import load_dotenv
 
+# Load environment variables from .env file
+load_dotenv()
 app = FastAPI(title="Claude-compatible OpenAI API")
 
 # Set up logging
@@ -17,8 +22,8 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %
 logger = logging.getLogger(__name__)
 
 # You'll need to set these values appropriately
-COOKIE = "YOUR_COOKIE_HERE"  # Replace with actual cookie value
-API_KEY = "sk_claude_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6"  # Set this to your desired API key
+COOKIE =os.getenv('COOKIE')# Replace with actual cookie value
+API_KEY = os.getenv('API_KEY')  # Set this to your desired API key
 
 api_key_header = APIKeyHeader(name="Authorization", auto_error=False)
 
@@ -30,9 +35,9 @@ class ChatMessage(BaseModel):
     content: str
 
 class ChatCompletionRequest(BaseModel):
-    model: str = "claude-3-opus-20240229"
+    model: str = "claude-3-5-sonnet-20240620"
     messages: List[ChatMessage]
-    max_tokens: Optional[int] = 512
+    max_tokens: Optional[int] = 20000
     temperature: Optional[float] = 0.7
     stream: Optional[bool] = False
 
@@ -50,7 +55,7 @@ async def get_api_key(api_key_header: str = Security(api_key_header)):
 @app.on_event("startup")
 async def startup_event():
     global claude_client, embedding_model
-    claude_client = ClaudeClient(COOKIE)
+    claude_client = ClaudeClient(COOKIE, model="claude-3-5-sonnet-20240620")
     logger.debug(f"Claude client initialized with organization ID: {claude_client.organization_id}")
     embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
     logger.debug("Embedding model initialized")
@@ -101,8 +106,24 @@ async def chat_completions(request: ChatCompletionRequest, api_key: str = Depend
         logger.exception(f"An error occurred: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+def process_code_blocks(text):
+    def replace_code_block(match):
+        language = match.group(1) or ""
+        code = match.group(2)
+        return f"\n```{language}\n{code}\n```\n"
+
+    # Replace code blocks
+    text = re.sub(r'```(\w*)\n(.*?)\n```', replace_code_block, text, flags=re.DOTALL)
+    
+    # Ensure proper spacing around code blocks
+    text = re.sub(r'(\n```[\w]*\n.*?\n```)\n?', r'\1\n\n', text, flags=re.DOTALL)
+    
+    return text
+
 async def stream_claude_response(response: str, request: ChatCompletionRequest):
-    words = response.split()
+    processed_response = process_code_blocks(response)
+    words = processed_response.split()
+    
     for i, word in enumerate(words):
         chunk = {
             "id": f"chatcmpl-{i}",
@@ -126,6 +147,8 @@ async def stream_claude_response(response: str, request: ChatCompletionRequest):
     yield "data: [DONE]\n\n"
 
 def format_claude_response(response: str, request: ChatCompletionRequest):
+    processed_response = process_code_blocks(response)
+    
     return {
         "id": f"chatcmpl-{int(time.time())}",
         "object": "chat.completion",
@@ -135,14 +158,14 @@ def format_claude_response(response: str, request: ChatCompletionRequest):
             "index": 0,
             "message": {
                 "role": "assistant",
-                "content": response,
+                "content": processed_response,
             },
             "finish_reason": "stop"
         }],
         "usage": {
             "prompt_tokens": sum(len(msg.content.split()) for msg in request.messages),
-            "completion_tokens": len(response.split()),
-            "total_tokens": sum(len(msg.content.split()) for msg in request.messages) + len(response.split())
+            "completion_tokens": len(processed_response.split()),
+            "total_tokens": sum(len(msg.content.split()) for msg in request.messages) + len(processed_response.split())
         }
     }
 

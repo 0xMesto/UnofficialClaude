@@ -7,15 +7,20 @@ import re
 import time
 import logging
 import random
+import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 class Client:
 
-    def __init__(self, cookie, model="claude-3-opus-20240229"):
+    def __init__(self, cookie, model="claude-3-5-sonnet-20240620"):
         self.cookie = cookie
-        self.organization_id = "YOUR-ORGANIZATION-ID"
+        self.organization_id = os.getenv('ORGANIZATION_ID') 
         self.model = model
         logger.debug(f"Initialized Client with organization_id: {self.organization_id} and model: {self.model}")
 
@@ -89,7 +94,7 @@ class Client:
         url = f"https://api.claude.ai/api/organizations/{self.organization_id}/chat_conversations/{conversation_id}/completion"
 
         # Simulate human typing speed
-        typing_delay = len(prompt) * 0.005  # 50ms per character
+        typing_delay = len(prompt) * 0.00005  # 50ms per character
         logger.info(f"Human-like behavior: Typing message (simulated delay: {typing_delay:.2f} seconds)")
         time.sleep(typing_delay)
 
@@ -150,7 +155,7 @@ class Client:
                 logger.info(f"Human-like behavior: Received answer (length: {len(answer)})")
                 
                 # Simulate human reading time
-                reading_time = len(answer) * 0.01  # 10ms per character
+                reading_time = len(answer) * 0.005  # 10ms per character
                 logger.info(f"Human-like behavior: Reading response (simulated delay: {reading_time:.2f} seconds)")
                 time.sleep(reading_time)
                 
@@ -359,6 +364,7 @@ class Client:
             "claude-3-opus-20240229",
             "claude-3-sonnet-20240229",
             "claude-3-haiku-20240307",
+            "claude-3-5-sonnet-20240620",
             "claude-2.1",
             "claude-2.0"
         ]
@@ -378,27 +384,3 @@ class Client:
 # End of Client class
 
 # You might want to add some utility functions or additional classes here if needed
-
-if __name__ == "__main__":
-    # This block can be used for testing or as a simple CLI interface
-    cookie = "YOUR_COOKIE_HERE"  # Replace with actual cookie value
-    client = Client(cookie)
-
-    print("Available models:", client.get_available_models())
-    print("Current model:", client.get_current_model())
-
-    # Example of creating a new chat and sending a message
-    new_chat = client.create_new_chat()
-    if new_chat:
-        conversation_id = new_chat['uuid']
-        response = client.send_message("Hello, Claude!", conversation_id)
-        print("Claude's response:", response)
-
-    # Example of changing the model
-    try:
-        client.set_model("claude-3-sonnet-20240229")
-        print("Model changed to:", client.get_current_model())
-    except ValueError as e:
-        print(e)
-
-    # Add more examples or test cases as needed
